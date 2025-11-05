@@ -1291,7 +1291,7 @@ class test_Channel:
         channel.sqs = Mock()
         sqs_queue_mock = Mock()
         channel.sqs.return_value = sqs_queue_mock
-        
+
         # Test with hyphens, underscores, and alphanumeric
         group_id = 'customer-123_tenant-abc-XYZ'
         p.publish('message', MessageGroupId=group_id)
@@ -1345,7 +1345,7 @@ class test_Channel:
         channel.sqs = Mock()
         sqs_queue_mock = Mock()
         channel.sqs.return_value = sqs_queue_mock
-        
+
         p.publish(
             'message',
             MessageGroupId='group-2',
