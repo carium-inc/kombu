@@ -101,6 +101,7 @@ class Hub:
         self.propagate_errors = ()
 
         self._create_poller()
+        self.locks = set()
 
     @property
     def poller(self):
@@ -288,6 +289,15 @@ class Hub:
         logger.error(
             'Callback %r raised exception: %r', callback, exc, exc_info=1,
         )
+
+    def add_lock(self, lock):
+        self.locks.add(lock)
+
+    def remove_lock(self, lock):
+        self.locks.remove(lock)
+
+    def is_shutdown_ready(self):
+        return not self.locks
 
     def create_loop(self,
                     generator=generator, sleep=sleep, min=min, next=next,

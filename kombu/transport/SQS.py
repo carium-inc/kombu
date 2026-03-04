@@ -490,7 +490,7 @@ class Channel(virtual.Channel):
             c.change_message_visibility(
                 QueueUrl=q_url,
                 ReceiptHandle=message['properties']['delivery_tag'],
-                VisibilityTimeout=self.wait_time_seconds
+                VisibilityTimeout=0,
             )
         else:
             c.send_message(**kwargs)
@@ -623,11 +623,16 @@ class Channel(virtual.Channel):
     def _loop1(self, queue, _=None):
         self.hub.call_soon(self._schedule_queue, queue)
 
+    def _get_bulk_async_cb(self, queue, _=None):
+        self.hub.remove_lock(f"SQS-POLL-{queue}")
+        self._loop1(queue)
+
     def _schedule_queue(self, queue):
         if queue in self._active_queues:
             if self.qos.can_consume():
+                self.hub.add_lock(f"SQS-POLL-{queue}")
                 self._get_bulk_async(
-                    queue, callback=promise(self._loop1, (queue,)),
+                    queue, callback=promise(self._get_bulk_async_cb, (queue,)),
                 )
             else:
                 self._loop1(queue)
