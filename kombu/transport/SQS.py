@@ -287,6 +287,16 @@ class Channel(virtual.Channel):
         self._update_queue_cache(self.queue_name_prefix)
 
         self.hub = kwargs.get('hub') or get_event_loop()
+        self._sqs_locks = set()
+
+    def _aquire_lock(self, queue: str) -> bool:
+        if queue in self._sqs_locks:
+            return False
+        self._sqs_locks.add(queue)
+        return True
+
+    def _release_lock(self, queue: str) -> None:
+        self._sqs_locks.discard(queue)
 
     def _validate_predifined_queues(self):
         """Check that standard and FIFO queues are named properly.
@@ -331,6 +341,11 @@ class Channel(virtual.Channel):
     def basic_cancel(self, consumer_tag):
         if consumer_tag in self._consumers:
             queue = self._tag_to_queue[consumer_tag]
+            logger.info(f"SQS.Channel.basic_cancel:{queue}")
+            while not self._aquire_lock(queue):
+                logger.info(f"SQS.Channel.basic_cancel:{queue}:wait")
+                next(self.hub.loop)
+            logger.info(f"SQS.Channel.basic_cancel:{queue}:ready")
             self._noack_queues.discard(queue)
         return super().basic_cancel(consumer_tag)
 
@@ -490,7 +505,7 @@ class Channel(virtual.Channel):
             c.change_message_visibility(
                 QueueUrl=q_url,
                 ReceiptHandle=message['properties']['delivery_tag'],
-                VisibilityTimeout=self.wait_time_seconds
+                VisibilityTimeout=0,
             )
         else:
             c.send_message(**kwargs)
@@ -623,11 +638,16 @@ class Channel(virtual.Channel):
     def _loop1(self, queue, _=None):
         self.hub.call_soon(self._schedule_queue, queue)
 
+    def _get_bulk_async_cb(self, queue, _=None):
+        self._release_lock(queue)
+        self._loop1(queue)
+
     def _schedule_queue(self, queue):
         if queue in self._active_queues:
             if self.qos.can_consume():
+                assert self._aquire_lock(queue)
                 self._get_bulk_async(
-                    queue, callback=promise(self._loop1, (queue,)),
+                    queue, callback=promise(self._get_bulk_async_cb, (queue,)),
                 )
             else:
                 self._loop1(queue)
