@@ -147,6 +147,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from json import JSONDecodeError
 from queue import Empty
+from time import monotonic
 from typing import Any
 
 from botocore.client import Config
@@ -341,9 +342,23 @@ class Channel(virtual.Channel):
     def basic_cancel(self, consumer_tag):
         if consumer_tag in self._consumers:
             queue = self._tag_to_queue[consumer_tag]
+            BASIC_CANCEL_LOCK_TIMEOUT = 30  # MAX SQS long polling time is 20 seconds, so we wait a bit longer than that to be safe.
+            wait_started = monotonic()
+            elapsed_wait = 0.0
             logger.info(f"SQS.Channel.basic_cancel:{queue}")
             while not self._aquire_lock(queue):
-                logger.info(f"SQS.Channel.basic_cancel:{queue}:wait")
+                current_time = monotonic()
+                elapsed_wait = current_time - wait_started
+                if elapsed_wait >= BASIC_CANCEL_LOCK_TIMEOUT:
+                    logger.warning(
+                        f"SQS.Channel.basic_cancel:{queue}:timeout:"
+                        f"{elapsed_wait:.2f}/{BASIC_CANCEL_LOCK_TIMEOUT}s"
+                    )
+                    break
+                logger.info(
+                    f"SQS.Channel.basic_cancel:{queue}:wait:"
+                    f"{elapsed_wait:.2f}/{BASIC_CANCEL_LOCK_TIMEOUT}s"
+                )
                 next(self.hub.loop)
             logger.info(f"SQS.Channel.basic_cancel:{queue}:ready")
             self._noack_queues.discard(queue)
