@@ -690,6 +690,26 @@ class test_Channel:
             'query': {'MessageSystemAttributeName.1': 'ApproximateReceiveCount'},
         }
 
+    def test_basic_cancel_gives_up_lock_after_timeout(self):
+        self.channel._aquire_lock = Mock(return_value=False)
+        self.channel.hub = Mock(loop=iter(()))
+
+        with patch('kombu.transport.SQS.monotonic', side_effect=[0, 31]):
+            self.channel.basic_cancel('unittest')
+
+        assert self.channel._aquire_lock.call_count == 1
+        assert 'unittest' not in self.channel._consumers
+
+    def test_basic_cancel_waits_for_lock_then_succeeds(self):
+        self.channel._aquire_lock = Mock(side_effect=[False, True])
+        self.channel.hub = Mock(loop=iter([None]))
+
+        with patch('kombu.transport.SQS.monotonic', side_effect=[0, 1]):
+            self.channel.basic_cancel('unittest')
+
+        assert self.channel._aquire_lock.call_count == 2
+        assert 'unittest' not in self.channel._consumers
+
     @pytest.mark.parametrize('fetch_attributes,expected', [
         # as a list for backwards compatibility
         (
