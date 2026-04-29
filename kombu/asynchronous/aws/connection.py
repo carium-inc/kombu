@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from email import message_from_bytes
 from email.mime.message import MIMEMessage
 
@@ -9,6 +10,8 @@ from vine import promise, transform
 
 from kombu.asynchronous.aws.ext import AWSRequest, get_cert_path, get_response
 from kombu.asynchronous.http import Headers, Request, get_client
+
+logger = logging.getLogger(__name__)
 
 
 def message_from_headers(hdr):
@@ -132,12 +135,17 @@ class AsyncHTTPSConnection:
 class AsyncConnection:
     """Async AWS Connection."""
 
-    def __init__(self, sqs_connection, http_client=None, **kwargs):
+    def __init__(self, sqs_connection, http_client=None,
+                 request_timeout=None, **kwargs):
         self.sqs_connection = sqs_connection
         self._httpclient = http_client or get_client()
+        self._request_timeout = request_timeout
 
     def get_http_connection(self):
-        return AsyncHTTPSConnection(http_client=self._httpclient)
+        kwargs = {}
+        if self._request_timeout:
+            kwargs['timeout'] = self._request_timeout
+        return AsyncHTTPSConnection(http_client=self._httpclient, **kwargs)
 
     def _mexe(self, request, sender=None, callback=None):
         callback = callback or promise()
@@ -177,10 +185,11 @@ class AsyncAWSQueryConnection(AsyncConnection):
     )
 
     def __init__(self, sqs_connection, http_client=None,
-                 http_client_params=None, **kwargs):
+                 http_client_params=None, request_timeout=None, **kwargs):
         if not http_client_params:
             http_client_params = {}
         super().__init__(sqs_connection, http_client,
+                         request_timeout=request_timeout,
                          **http_client_params)
 
     def make_request(self, operation, params_, path, verb, callback=None, protocol_params=None):
@@ -247,6 +256,11 @@ class AsyncAWSQueryConnection(AsyncConnection):
             # When the server returns a timeout or 50X server error,
             # the response is interpreted as an empty list.
             # This prevents hanging the Celery worker.
+            logger.warning(
+                'Async AWS request failed (status %s): %s. '
+                'Treating as empty response.',
+                response.status, getattr(response, 'error', ''),
+            )
             return []
         else:
             raise self._for_status(response, response.read())

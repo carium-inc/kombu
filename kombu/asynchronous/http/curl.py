@@ -197,6 +197,15 @@ class CurlClient(BaseClient):
         setopt = curl.setopt
         setopt(_pycurl.URL, bytes_to_str(request.url))
 
+        # Apply timeouts to prevent curl handles from hanging indefinitely
+        # on dead TCP connections (e.g., NAT gateway drops, k8s pod evictions).
+        connect_timeout = getattr(request, 'connect_timeout', None)
+        request_timeout = getattr(request, 'request_timeout', None)
+        if connect_timeout and isinstance(connect_timeout, (int, float)):
+            setopt(_pycurl.CONNECTTIMEOUT_MS, int(connect_timeout * 1000))
+        if request_timeout and isinstance(request_timeout, (int, float)):
+            setopt(_pycurl.TIMEOUT_MS, int(request_timeout * 1000))
+
         # see tornado curl client
         request.headers.setdefault('Expect', '')
         request.headers.setdefault('Pragma', '')
