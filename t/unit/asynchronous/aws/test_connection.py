@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from contextlib import contextmanager
 from io import StringIO
 from unittest.mock import Mock
@@ -257,18 +258,23 @@ class test_AsyncAWSQueryConnection(AWSCase):
         AsyncAWSQueryConnection.STATUS_CODE_SERVICE_UNAVAILABLE_ERROR,
         AsyncAWSQueryConnection.STATUS_CODE_GATEWAY_TIMEOUT
     ])
-    def test_on_list_ready_error_response(self, error_status_code):
+    def test_on_list_ready_error_response(self, error_status_code, caplog):
         mocked_response_error = self.Response(
             error_status_code,
             "error_status_code"
         )
-        result = self.x._on_list_ready(
-            "parent",
-            "markers",
-            "operation",
-            mocked_response_error
-        )
+        with caplog.at_level(logging.WARNING):
+            result = self.x._on_list_ready(
+                "parent",
+                "markers",
+                "operation",
+                mocked_response_error
+            )
         assert result == []
+        assert len(caplog.records) == 1
+        record = caplog.records[0]
+        assert 'Async AWS request failed' in record.message
+        assert str(error_status_code) in record.message
 
     def Response(self, status, body):
         r = Mock(name='response')

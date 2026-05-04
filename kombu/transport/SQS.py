@@ -264,6 +264,7 @@ class Channel(virtual.Channel):
     default_region = 'us-east-1'
     default_visibility_timeout = 1800  # 30 minutes.
     default_wait_time_seconds = 10  # up to 20 seconds max
+    default_request_timeout_margin = 30  # extra seconds beyond wait_time
     domain_format = 'kombu%(vhost)s'
     _asynsqs = None
     _predefined_queue_async_clients = {}  # A client for each predefined queue
@@ -895,7 +896,8 @@ class Channel(virtual.Channel):
                     sqs_connection=self.sqs(queue=queue),
                     region=q.get('region', self.region),
                     message_system_attribute_names=message_system_attribute_names,
-                    message_attribute_names=message_attribute_names
+                    message_attribute_names=message_attribute_names,
+                    request_timeout=self.request_timeout,
             )
             return c
 
@@ -906,7 +908,8 @@ class Channel(virtual.Channel):
             sqs_connection=self.sqs(queue=queue),
             region=self.region,
             message_system_attribute_names=message_system_attribute_names,
-            message_attribute_names=message_attribute_names
+            message_attribute_names=message_attribute_names,
+            request_timeout=self.request_timeout,
         )
         return c
 
@@ -972,6 +975,22 @@ class Channel(virtual.Channel):
     def wait_time_seconds(self) -> int:
         return self.transport_options.get('wait_time_seconds',
                                           self.default_wait_time_seconds)
+
+    @cached_property
+    def request_timeout(self) -> float:
+        """Total HTTP request timeout for SQS long-poll requests.
+
+        Defaults to ``wait_time_seconds + default_request_timeout_margin``
+        (e.g., 10 + 30 = 40 seconds).  Must be greater than
+        wait_time_seconds to allow the long-poll to complete plus
+        network overhead.
+
+        Override via the ``request_timeout`` transport option (seconds).
+        """
+        return self.transport_options.get(
+            'request_timeout',
+            self.wait_time_seconds + self.default_request_timeout_margin
+        )
 
     @cached_property
     def sqs_base64_encoding(self):
